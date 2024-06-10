@@ -10,8 +10,10 @@ from transforms3d.quaternions import mat2quat
 
 
 class Viz:
-    def __init__(self) -> None:
-        rr.init("rerun_example_dna_abacus", spawn=True)
+    def __init__(self, name: str = None) -> None:
+        if name is None:
+            name = str(uuid.uuid4())
+        rr.init(name, spawn=True)
         rr.set_time_seconds("real_clock", time.time())
         self.uuid_to_oobb = {}  # {uuid, oobb} for each point cloud
         self.uuid_to_color = {}  # {uuid, color} for each point cloud
@@ -108,13 +110,13 @@ class Viz:
             colors = self.uuid_to_color.get(id, self._get_random_rgb())
         self.uuid_to_oobb[id] = oobb
         self.uuid_to_color[id] = colors
-        rr.log(f"/pcd/{id}", rr.Points3D(pcd, colors=colors, radii=0.08))
+        rr.log(f"/pcd/{id}/pts", rr.Points3D(pcd, colors=colors, radii=0.08))
         # draw bounding box too
         q = mat2quat(R)
         q = np.roll(q, -1)  # turn wxyz to xyzw
         q = Quaternion(xyzw=q)
         rr.log(
-            f"/oobb/{id}",
+            f"/pcd/{id}/obb",
             rr.Boxes3D(
                 half_sizes=extent / 2,
                 centers=center,
