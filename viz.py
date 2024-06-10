@@ -1,20 +1,22 @@
 import rerun as rr
+from rerun.datatypes import Quaternion
 import time
 import numpy as np
 import uuid
 import open3d as o3d
 import torch
 from pytorch3d.ops import box3d_overlap
+from transforms3d.quaternions import mat2quat
 
-class Viz():
-    """"""
+
+class Viz:
     def __init__(self) -> None:
         rr.init("rerun_example_dna_abacus", spawn=True)
         rr.set_time_seconds("real_clock", time.time())
         self.uuid_to_oobb = {}  # {uuid, oobb} for each point cloud
         self.uuid_to_color = {}  # {uuid, color} for each point cloud
 
-    def _pcd_to_p3d_oobb(self, pcd: np.ndarray) -> torch.Tensor:
+    def _pcd_to_p3d_oobb(self, pcd: np.ndarray):
         """
         Find the oriented bounding box of a point cloud using open3d and convert it to pytorch3d format
         (4) +---------+. (5)
@@ -28,16 +30,19 @@ class Viz():
         o3d_pcd = o3d.geometry.PointCloud()
         o3d_pcd.points = o3d.utility.Vector3dVector(pcd)
         oobb = o3d_pcd.get_oriented_bounding_box()
-        unit_box = torch.tensor([
-            [0, 0, 0],
-            [1, 0, 0],
-            [1, 1, 0],
-            [0, 1, 0],
-            [0, 0, 1],
-            [1, 0, 1],
-            [1, 1, 1],
-            [0, 1, 1],
-        ], dtype=torch.float32)
+        unit_box = torch.tensor(
+            [
+                [0, 0, 0],
+                [1, 0, 0],
+                [1, 1, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+                [1, 0, 1],
+                [1, 1, 1],
+                [0, 1, 1],
+            ],
+            dtype=torch.float32,
+        )
         R = torch.tensor(oobb.R, dtype=torch.float32)
         extent = torch.tensor(oobb.extent, dtype=torch.float32)
         center = torch.tensor(oobb.center, dtype=torch.float32)
@@ -48,7 +53,7 @@ class Viz():
         # translate the box
         cur_center = torch.ones(8, 3, dtype=torch.float32) / 2
         p3d_oobb = p3d_oobb - cur_center + center
-        return p3d_oobb
+        return p3d_oobb, oobb.extent, oobb.R, oobb.center
 
     def _ious(self, oobbs: torch.Tensor, oobb2: torch.Tensor) -> torch.Tensor:
         """
@@ -61,7 +66,7 @@ class Viz():
         return ious.unsqueeze(1)
 
     def _find_most_likely_uuid(self, oobb: torch.Tensor, threshold=0.5) -> str:
-        """ Use intersection over union to find the most likely uuid of the pcd cloud that contains the pcd """
+        """Use intersection over union to find the most likely uuid of the pcd cloud that contains the pcd"""
         if len(self.uuid_to_oobb) == 0:
             return str(uuid.uuid4())
         oobbs = torch.stack(list(self.uuid_to_oobb.values()))
@@ -75,11 +80,14 @@ class Viz():
     def _get_random_rgb(self) -> np.ndarray:
         return (np.random.rand(3) * 255).astype(np.uint8)
 
-    def log_point_cloud(self, pcd: np.ndarray,
-                        colors: np.ndarray=None,
-                        uuid: str=None,
-                        classification: str=None,
-                        observation_time: float=None):
+    def log_point_cloud(
+        self,
+        pcd: np.ndarray,
+        colors: np.ndarray = None,
+        uuid: str = None,
+        classification: str = None,
+        observation_time: float = None,
+    ):
         """
         log point_cloud we need to take in pcd [n, 3] and optinally color, classification and time
 
@@ -90,7 +98,7 @@ class Viz():
             classification (str, optional): Defaults to None if you don't want any labels.
             observation_time (float, optional): Time since epoch in seconds. If None current time used.
         """
-        oobb = self._pcd_to_p3d_oobb(pcd)
+        oobb, extent, R, center = self._pcd_to_p3d_oobb(pcd)
         if observation_time is None:
             observation_time = time.time()
         rr.set_time_seconds("real_clock", observation_time)
@@ -101,6 +109,20 @@ class Viz():
         self.uuid_to_oobb[uuid] = oobb
         self.uuid_to_color[uuid] = colors
         rr.log(f"/pcd/{uuid}", rr.Points3D(pcd, colors=colors, radii=0.08))
+        # draw bounding box too
+        q = mat2quat(R)
+        q = np.roll(q, -1)  # turn wxyz to xyzw
+        q = Quaternion(xyzw=q)
+        rr.log(
+            f"/oobb/{uuid}",
+            rr.Boxes3D(
+                half_sizes=extent / 2,
+                centers=center,
+                rotations=q,
+                colors=colors,
+                labels=classification,
+            ),
+        )
 
 
 # log tf we take in 4x4 and optionally scale and time
@@ -113,7 +135,7 @@ if __name__ == "__main__":
     # test client. First log a random gaussian point cloud of 10 points
     viz = Viz()
     points = np.random.randn(100, 3)
-    viz.log_point_cloud(points)
+    viz.log_point_cloud(points, classification="random")
     time.sleep(1)
     # then log a the same point cloud shifted by a tiny bit
     points += 0.1
