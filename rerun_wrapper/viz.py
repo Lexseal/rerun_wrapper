@@ -85,9 +85,11 @@ class Viz:
     def log_point_cloud(
         self,
         pcd: np.ndarray,
+        obb: np.ndarray = None,
         colors: np.ndarray = None,
         id: str = None,
         classification: str = None,
+        radius: float = 0.01,
         observation_time: float = None,
     ):
         """
@@ -95,28 +97,33 @@ class Viz:
 
         Args:
             pcd (np.ndarray): [n, 3]
+            obb (np.ndarray, optional): [8, 3]. Oriented bounding box of the pcd.
             colors (np.ndarray, optional): [3, ] or [n, 3]. Defaults to None for persistent random colors.
             id (str, optional): For persistence. If None, will try to find the uuid of the closest point cloud.
             classification (str, optional): Defaults to None if you don't want any labels.
             observation_time (float, optional): Time since epoch in seconds. If None current time used.
+            radius (float, optional): Defaults to 0.01 meters.
         """
         if observation_time is None:
             observation_time = time.time()
         rr.set_time_seconds("real_clock", observation_time)
-        oobb, extent, R, center = self._pcd_to_p3d_oobb(pcd)
+        if obb is not None:  # reindex the obb since we need it in a specific order
+            oobb, extent, R, center = self._pcd_to_p3d_oobb(obb)
+        else:
+            oobb, extent, R, center = self._pcd_to_p3d_oobb(pcd)
         if id is None:
             id = self._find_most_likely_uuid(oobb)
         if colors is None:
             colors = self.uuid_to_color.get(id, self._get_random_rgb())
         self.uuid_to_oobb[id] = oobb
         self.uuid_to_color[id] = colors
-        rr.log(f"/pcd/{id}/pts", rr.Points3D(pcd, colors=colors, radii=0.08))
+        rr.log(f"/pcd/pts/{id}", rr.Points3D(pcd, colors=colors, radii=radius))
         # draw bounding box too
         q = mat2quat(R)
         q = np.roll(q, -1)  # turn wxyz to xyzw
         q = Quaternion(xyzw=q)
         rr.log(
-            f"/pcd/{id}/obb",
+            f"/pcd/obb/{id}",
             rr.Boxes3D(
                 half_sizes=extent / 2,
                 centers=center,
@@ -149,7 +156,7 @@ class Viz:
         transform = TranslationRotationScale3D(
             translation=tf[:3, 3],
             rotation=Quaternion(xyzw=np.roll(mat2quat(tf[:3, :3]), -1)),
-            scale=scale,
+            scale=scale * 2,  # this is the halfsize scale
         )
         rr.log(f"/tf/{id}", rr.Transform3D(transform))
 
@@ -217,7 +224,7 @@ class Viz:
                 ]
             )
         rr.log(
-            f"/image/{id}",
+            f"/camera/image/{id}",
             rr.Pinhole(
                 image_from_camera=intrinsics,
                 resolution=(image.shape[1], image.shape[0]),
@@ -226,14 +233,31 @@ class Viz:
         img_to_log = (
             rr.Image(image) if image.shape[-1] == 3 else rr.DepthImage(image, meter=1.0)
         )
-        rr.log(f"/image/{id}", img_to_log)
+        rr.log(f"/camera/image/{id}", img_to_log)
         transform = TranslationRotationScale3D(
             translation=tf[:3, 3],
             rotation=Quaternion(xyzw=np.roll(mat2quat(tf[:3, :3]), -1)),
             scale=0.3,
         )
-        rr.log(f"/image/{id}", rr.Transform3D(transform))
+        rr.log(f"/camera/image/{id}", rr.Transform3D(transform))
 
+    def log_image(self, image: np.ndarray, id: str = None, observation_time: float = None):
+        """
+        log image we take in an image [h, w, 3] or [h, w] and optionally time
+
+        Args:
+            image (np.ndarray): [h, w, 3] or [h, w]
+            observation_time (float, optional): Time since epoch in seconds. If None current time used.
+        """
+        if observation_time is None:
+            observation_time = time.time()
+        rr.set_time_seconds("real_clock", observation_time)
+        if id is None:
+            id = "color" if image.shape[-1] == 3 else "depth"
+        img_to_log = (
+            rr.Image(image) if image.shape[-1] == 3 else rr.DepthImage(image, meter=1.0)
+        )
+        rr.log(f"/image/{id}", img_to_log)
 
 if __name__ == "__main__":
     # test client. First log a random gaussian point cloud of 10 points
