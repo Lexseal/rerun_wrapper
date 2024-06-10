@@ -1,5 +1,5 @@
 import rerun as rr
-from rerun.datatypes import Quaternion
+from rerun.datatypes import Quaternion, TranslationRotationScale3D
 import time
 import numpy as np
 import uuid
@@ -124,7 +124,13 @@ class Viz:
             ),
         )
 
-    def log_tf(self, tf: np.ndarray, scale: float = 0.3, id: str = None, observation_time: float = None):
+    def log_tf(
+        self,
+        tf: np.ndarray,
+        scale: float = 0.3,
+        id: str = None,
+        observation_time: float = None,
+    ):
         """
         log tf we take in 4x4 and optionally scale and time
 
@@ -138,20 +144,20 @@ class Viz:
         rr.set_time_seconds("real_clock", observation_time)
         if id is None:
             id = str(uuid.uuid4())
-        axis = ["x", "y", "z"]
-        for i in range(3):
-            colors = [0] * 3
-            colors[i] = 255
-            rr.log(
-                f"/tf/{id}_{axis[i]}",
-                rr.Arrows3D(
-                    origins=tf[:3, 3],
-                    vectors=tf[:3, i] * scale,
-                    colors=colors,
-                ),
-            )
+        transform = TranslationRotationScale3D(
+            translation=tf[:3, 3],
+            rotation=Quaternion(xyzw=np.roll(mat2quat(tf[:3, :3]), -1)),
+            scale=scale,
+        )
+        rr.log(f"/tf/{id}", rr.Transform3D(transform))
 
-    def log_trajectory(self, trajectory: np.ndarray, id: str = None, colors: np.ndarray = None, observation_time: float = None):
+    def log_trajectory(
+        self,
+        trajectory: np.ndarray,
+        id: str = None,
+        colors: np.ndarray = None,
+        observation_time: float = None,
+    ):
         """
         log trajectory we take in [n, 2] or [n, 3] and optionally time
 
@@ -170,17 +176,62 @@ class Viz:
         # draw arrows between points
         for i in range(trajectory.shape[0] - 1):
             rr.log(
-                f"/trajectory/{id}_{i}",
+                f"/trajectory/{id}/{i}",
                 rr.Arrows3D(
                     origins=trajectory[i],
                     vectors=trajectory[i + 1] - trajectory[i],
-                    colors=colors
+                    colors=colors,
                 ),
             )
 
-# log camera we take in an image [h, w, 3] or [h, w] and then tf and optionally intrinsics and time
+    def log_camera(
+        self,
+        image: np.ndarray,
+        tf: np.ndarray,
+        intrinsics: np.ndarray = None,
+        id: str = None,
+        observation_time: float = None,
+    ):
+        """
+        log camera we take in an image [h, w, 3] or [h, w] and then tf and optionally intrinsics and time
 
-# log trajectory we take in [n, 2] or [n, 3] and optionally time
+        Args:
+            image (np.ndarray): [h, w, 3] or [h, w]
+            tf (np.ndarray): [4, 4]
+            intrinsics (np.ndarray, optional): [3, 3]. Defaults to None.
+            observation_time (float, optional): Time since epoch in seconds. If None current time used.
+        """
+        if observation_time is None:
+            observation_time = time.time()
+        rr.set_time_seconds("real_clock", observation_time)
+        if id is None:
+            id = "color" if image.shape[-1] == 3 else "depth"
+        if intrinsics is None:
+            intrinsics = np.array(
+                [
+                    [image.shape[1] / 2, 0, image.shape[1] / 2],
+                    [0, image.shape[1] / 2, image.shape[0] / 2],
+                    [0, 0, 1],
+                ]
+            )
+        rr.log(
+            f"/image/{id}",
+            rr.Pinhole(
+                image_from_camera=intrinsics,
+                resolution=(image.shape[1], image.shape[0]),
+            ),
+        )
+        img_to_log = (
+            rr.Image(image) if image.shape[-1] == 3 else rr.DepthImage(image, meter=1.0)
+        )
+        rr.log(f"/image/{id}", img_to_log)
+        transform = TranslationRotationScale3D(
+            translation=tf[:3, 3],
+            rotation=Quaternion(xyzw=np.roll(mat2quat(tf[:3, :3]), -1)),
+            scale=0.3,
+        )
+        rr.log(f"/image/{id}", rr.Transform3D(transform))
+
 
 if __name__ == "__main__":
     # test client. First log a random gaussian point cloud of 10 points
@@ -204,3 +255,12 @@ if __name__ == "__main__":
     # log trajectory
     trajectory = np.random.randn(10, 2)
     viz.log_trajectory(trajectory)
+    time.sleep(0.1)
+    # log color camera
+    image = np.random.rand(100, 100, 3)
+    tf = np.eye(4)
+    viz.log_camera(image, tf)
+    time.sleep(0.1)
+    # log depth camera
+    image = np.ones(shape=(100, 100))
+    viz.log_camera(image, tf)
