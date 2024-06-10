@@ -10,10 +10,21 @@ from transforms3d.quaternions import mat2quat
 
 
 class Viz:
-    def __init__(self, name: str = None) -> None:
+    def __init__(self, name: str = None, remote_url: str = None):
+        """
+        Initialize the rerun client
+
+        Args:
+            name (str, optional): Name of the rerun instance. Defaults to None.
+            remote_url (str, optional): The ip:port to connect to.
+        """
         if name is None:
             name = str(uuid.uuid4())
-        rr.init(name, spawn=True)
+        rr.init(name)
+        if remote_url is not None:
+            rr.connect(remote_url)
+        else:
+            rr.spawn()
         rr.set_time_seconds("real_clock", time.time())
         self.uuid_to_oobb = {}  # {uuid, oobb} for each point cloud
         self.uuid_to_color = {}  # {uuid, color} for each point cloud
