@@ -84,7 +84,7 @@ class Viz:
         self,
         pcd: np.ndarray,
         colors: np.ndarray = None,
-        uuid: str = None,
+        id: str = None,
         classification: str = None,
         observation_time: float = None,
     ):
@@ -94,27 +94,27 @@ class Viz:
         Args:
             pcd (np.ndarray): [n, 3]
             colors (np.ndarray, optional): [3, ] or [n, 3]. Defaults to None for persistent random colors.
-            uuid (str, optional): For persistence. If None, will try to find the uuid of the closest point cloud.
+            id (str, optional): For persistence. If None, will try to find the uuid of the closest point cloud.
             classification (str, optional): Defaults to None if you don't want any labels.
             observation_time (float, optional): Time since epoch in seconds. If None current time used.
         """
-        oobb, extent, R, center = self._pcd_to_p3d_oobb(pcd)
         if observation_time is None:
             observation_time = time.time()
         rr.set_time_seconds("real_clock", observation_time)
-        if uuid is None:
-            uuid = self._find_most_likely_uuid(oobb)
+        oobb, extent, R, center = self._pcd_to_p3d_oobb(pcd)
+        if id is None:
+            id = self._find_most_likely_uuid(oobb)
         if colors is None:
-            colors = self.uuid_to_color.get(uuid, self._get_random_rgb())
-        self.uuid_to_oobb[uuid] = oobb
-        self.uuid_to_color[uuid] = colors
-        rr.log(f"/pcd/{uuid}", rr.Points3D(pcd, colors=colors, radii=0.08))
+            colors = self.uuid_to_color.get(id, self._get_random_rgb())
+        self.uuid_to_oobb[id] = oobb
+        self.uuid_to_color[id] = colors
+        rr.log(f"/pcd/{id}", rr.Points3D(pcd, colors=colors, radii=0.08))
         # draw bounding box too
         q = mat2quat(R)
         q = np.roll(q, -1)  # turn wxyz to xyzw
         q = Quaternion(xyzw=q)
         rr.log(
-            f"/oobb/{uuid}",
+            f"/oobb/{id}",
             rr.Boxes3D(
                 half_sizes=extent / 2,
                 centers=center,
@@ -124,8 +124,59 @@ class Viz:
             ),
         )
 
+    def log_tf(self, tf: np.ndarray, scale: float = 0.3, id: str = None, observation_time: float = None):
+        """
+        log tf we take in 4x4 and optionally scale and time
 
-# log tf we take in 4x4 and optionally scale and time
+        Args:
+            tf (np.ndarray): [4, 4]
+            scale (float, optional): Defaults to 0.3 meters.
+            observation_time (float, optional): Time since epoch in seconds. If None current time used.
+        """
+        if observation_time is None:
+            observation_time = time.time()
+        rr.set_time_seconds("real_clock", observation_time)
+        if id is None:
+            id = str(uuid.uuid4())
+        axis = ["x", "y", "z"]
+        for i in range(3):
+            colors = [0] * 3
+            colors[i] = 255
+            rr.log(
+                f"/tf/{id}_{axis[i]}",
+                rr.Arrows3D(
+                    origins=tf[:3, 3],
+                    vectors=tf[:3, i] * scale,
+                    colors=colors,
+                ),
+            )
+
+    def log_trajectory(self, trajectory: np.ndarray, id: str = None, colors: np.ndarray = None, observation_time: float = None):
+        """
+        log trajectory we take in [n, 2] or [n, 3] and optionally time
+
+        Args:
+            trajectory (np.ndarray): [n, 2] or [n, 3]
+            observation_time (float, optional): Time since epoch in seconds. If None current time used.
+        """
+        if observation_time is None:
+            observation_time = time.time()
+        rr.set_time_seconds("real_clock", observation_time)
+        if id is None:
+            id = str(uuid.uuid4())
+        if trajectory.shape[1] == 2:
+            trajectory = np.hstack((trajectory, np.zeros((trajectory.shape[0], 1))))
+        colors = colors or self._get_random_rgb()
+        # draw arrows between points
+        for i in range(trajectory.shape[0] - 1):
+            rr.log(
+                f"/trajectory/{id}_{i}",
+                rr.Arrows3D(
+                    origins=trajectory[i],
+                    vectors=trajectory[i + 1] - trajectory[i],
+                    colors=colors
+                ),
+            )
 
 # log camera we take in an image [h, w, 3] or [h, w] and then tf and optionally intrinsics and time
 
@@ -136,11 +187,20 @@ if __name__ == "__main__":
     viz = Viz()
     points = np.random.randn(100, 3)
     viz.log_point_cloud(points, classification="random")
-    time.sleep(1)
+    time.sleep(0.1)
     # then log a the same point cloud shifted by a tiny bit
     points += 0.1
     viz.log_point_cloud(points)  # this should have the same uuid
-    time.sleep(1)
+    time.sleep(0.1)
     # then shift it by a lot
     points += 1
     viz.log_point_cloud(points)  # this should have a new uuid
+    time.sleep(0.1)
+    # log tf
+    tf = np.eye(4)
+    tf[0, 3] = 1
+    viz.log_tf(tf, scale=0.5)
+    time.sleep(0.1)
+    # log trajectory
+    trajectory = np.random.randn(10, 2)
+    viz.log_trajectory(trajectory)
