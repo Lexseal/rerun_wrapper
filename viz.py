@@ -44,7 +44,7 @@ class Viz():
         # stretch the box
         p3d_oobb = unit_box * extent
         # rotate the box
-        p3d_oobb = torch.matmul(unit_box, R.T)
+        p3d_oobb = torch.matmul(p3d_oobb, R.T)
         # translate the box
         cur_center = torch.ones(8, 3, dtype=torch.float32) / 2
         p3d_oobb = p3d_oobb - cur_center + center
@@ -112,7 +112,7 @@ class Viz():
 if __name__ == "__main__":
     # test client. First log a random gaussian point cloud of 10 points
     viz = Viz()
-    points = np.random.randn(10, 3)
+    points = np.random.randn(100, 3)
     viz.log_point_cloud(points)
     time.sleep(1)
     # then log a the same point cloud shifted by a tiny bit
