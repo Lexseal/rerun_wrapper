@@ -193,6 +193,8 @@ class Viz:
         if trajectory.shape[1] == 2:
             trajectory = np.hstack((trajectory, np.zeros((trajectory.shape[0], 1))))
         colors = colors or self._get_random_rgb()
+        # first clear the old trajectory
+        rr.log(f"/trajectory/{id}", rr.Clear(recursive=True))
         # draw arrows between points
         for i in range(trajectory.shape[0] - 1):
             rr.log(
